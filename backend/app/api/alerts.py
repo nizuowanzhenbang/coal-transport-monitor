@@ -1,10 +1,10 @@
 """预警管理API"""
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_db, get_current_user
 from app.models.alert import Alert, AlertType, Severity, AlertStatus
@@ -38,14 +38,18 @@ def list_alerts(
         query = query.filter(Alert.status == status)
     if plate:
         query = (
-            query.join(TransportRecord)
-            .join(Vehicle)
+            query.join(TransportRecord, TransportRecord.id == Alert.transport_id)
+            .join(Vehicle, Vehicle.id == TransportRecord.vehicle_id)
             .filter(Vehicle.plate_number.contains(plate))
         )
 
     total = query.count()
+    # 使用 joinedload 消除 N+1 查询，一次加载关联的运输记录和车辆
     alerts = (
-        query.order_by(Alert.created_at.desc())
+        query.options(
+            joinedload(Alert.transport).joinedload(TransportRecord.vehicle)
+        )
+        .order_by(Alert.created_at.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
@@ -54,13 +58,14 @@ def list_alerts(
     items = []
     for a in alerts:
         item = AlertResponse.model_validate(a).model_dump()
-        # 附加车牌号和运输信息
-        transport = db.query(TransportRecord).filter(TransportRecord.id == a.transport_id).first()
-        if transport:
-            vehicle = db.query(Vehicle).filter(Vehicle.id == transport.vehicle_id).first()
-            item["plate_number"] = vehicle.plate_number if vehicle else "未知"
-            item["departure_port"] = transport.departure_port
-            item["departure_time"] = transport.departure_time.isoformat() if transport.departure_time else None
+        if a.transport:
+            item["plate_number"] = a.transport.vehicle.plate_number if a.transport.vehicle else "未知"
+            item["departure_port"] = a.transport.departure_port
+            item["departure_time"] = (
+                a.transport.departure_time.isoformat() if a.transport.departure_time else None
+            )
+        else:
+            item["plate_number"] = "未知"
         items.append(item)
 
     return api_response(data=paginate_response(items, total, page, page_size))
@@ -83,7 +88,7 @@ def acknowledge_alert(
 
     alert.status = AlertStatus.ACKNOWLEDGED
     alert.resolved_by = current_user.username
-    alert.resolved_at = datetime.utcnow()
+    alert.resolved_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.commit()
 
     return api_response(message="预警已确认", data=AlertResponse.model_validate(alert).model_dump())
@@ -106,7 +111,7 @@ def resolve_alert(
 
     alert.status = AlertStatus.RESOLVED
     alert.resolved_by = current_user.username
-    alert.resolved_at = datetime.utcnow()
+    alert.resolved_at = datetime.now(timezone.utc).replace(tzinfo=None)
     alert.resolution_notes = body.resolution_notes
     db.commit()
 
@@ -126,7 +131,7 @@ def dismiss_alert(
 
     alert.status = AlertStatus.DISMISSED
     alert.resolved_by = current_user.username
-    alert.resolved_at = datetime.utcnow()
+    alert.resolved_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.commit()
 
     return api_response(message="预警已忽略", data=AlertResponse.model_validate(alert).model_dump())
@@ -139,7 +144,8 @@ def get_alert_stats(
     current_user=Depends(get_current_user),
 ):
     """获取预警统计数据"""
-    cutoff = datetime.utcnow().replace(hour=0, minute=0, second=0) - __import__('datetime').timedelta(days=days)
+    from datetime import timedelta
+    cutoff = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None) - timedelta(days=days)
 
     # 按类型统计
     type_stats = (

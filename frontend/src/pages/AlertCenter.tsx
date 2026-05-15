@@ -1,25 +1,41 @@
-import React, { useEffect, useState } from 'react';
-import { Card, Table, Tag, Select, Button, Space, Modal, Input, message, Row, Col, Statistic } from 'antd';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  Card,
+  Table,
+  Tag,
+  Select,
+  Button,
+  Space,
+  Modal,
+  Input,
+  message,
+  Row,
+  Col,
+  Statistic,
+} from 'antd';
+import type { ColumnsType } from 'antd/es/table';
 import {
   AlertOutlined,
   CheckCircleOutlined,
-  CloseCircleOutlined,
   WarningOutlined,
+  DownloadOutlined,
 } from '@ant-design/icons';
-import { alertApi } from '../api';
 import ReactECharts from 'echarts-for-react';
+import { alertApi, exportApi } from '../api';
+import type { AlertRecord, AlertStats, AlertType, Severity, AlertStatus } from '../types';
 import dayjs from 'dayjs';
 
 const { TextArea } = Input;
 
-const typeLabels: Record<string, string> = {
+const TYPE_LABELS: Record<AlertType, string> = {
   WEIGHT_SHORTAGE: '亏吨',
   WEIGHT_OVERAGE: '盈吨',
   TIME_EXCESSIVE: '运输超时',
   SEAL_MISMATCH: '铅封不一致',
   SEAL_DAMAGED: '铅封损坏',
 };
-const typeColors: Record<string, string> = {
+
+const TYPE_COLORS: Record<AlertType, string> = {
   WEIGHT_SHORTAGE: '#ff4d4f',
   WEIGHT_OVERAGE: '#faad14',
   TIME_EXCESSIVE: '#1677ff',
@@ -27,24 +43,33 @@ const typeColors: Record<string, string> = {
   SEAL_DAMAGED: '#faad14',
 };
 
+const STATUS_MAP: Record<AlertStatus, { color: string; text: string }> = {
+  PENDING: { color: 'red', text: '待处理' },
+  ACKNOWLEDGED: { color: 'gold', text: '已确认' },
+  RESOLVED: { color: 'green', text: '已解决' },
+  DISMISSED: { color: 'default', text: '已忽略' },
+};
+
+interface Filters {
+  alert_type?: AlertType;
+  severity?: Severity;
+  status?: AlertStatus;
+}
+
 const AlertCenter: React.FC = () => {
-  const [data, setData] = useState<any[]>([]);
+  const [data, setData] = useState<AlertRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
-  const [filters, setFilters] = useState<any>({});
-  const [stats, setStats] = useState<any>(null);
+  const [filters, setFilters] = useState<Filters>({});
+  const [stats, setStats] = useState<AlertStats | null>(null);
   const [resolveModal, setResolveModal] = useState<{ id: number } | null>(null);
   const [resolveNotes, setResolveNotes] = useState('');
 
-  const fetchData = async (p = page) => {
+  const fetchData = useCallback(async (p: number, f: Filters) => {
     setLoading(true);
     try {
-      const params: any = { page: p, page_size: 20 };
-      if (filters.alert_type) params.alert_type = filters.alert_type;
-      if (filters.severity) params.severity = filters.severity;
-      if (filters.status) params.status = filters.status;
-      const res: any = await alertApi.list(params);
+      const res = await alertApi.list({ page: p, page_size: 20, ...f });
       setData(res.data.items);
       setTotal(res.data.total);
     } catch {
@@ -52,25 +77,40 @@ const AlertCenter: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async () => {
     try {
-      const res: any = await alertApi.stats(30);
+      const res = await alertApi.stats(30);
       setStats(res.data);
-    } catch {}
-  };
+    } catch {
+      // 静默失败
+    }
+  }, []);
 
-  useEffect(() => { fetchData(); fetchStats(); }, []);
+  useEffect(() => {
+    fetchData(1, {});
+    fetchStats();
+  }, [fetchData, fetchStats]);
+
+  const applyFilter = useCallback(
+    (patch: Partial<Filters>) => {
+      const next = { ...filters, ...patch };
+      setFilters(next);
+      setPage(1);
+      fetchData(1, next);
+    },
+    [filters, fetchData]
+  );
 
   const handleAcknowledge = async (id: number) => {
     try {
       await alertApi.acknowledge(id);
       message.success('已确认');
-      fetchData();
+      fetchData(page, filters);
       fetchStats();
-    } catch (err: any) {
-      message.error(err?.detail || '操作失败');
+    } catch (err: unknown) {
+      message.error((err as { detail?: string })?.detail || '操作失败');
     }
   };
 
@@ -85,10 +125,10 @@ const AlertCenter: React.FC = () => {
       message.success('已处理');
       setResolveModal(null);
       setResolveNotes('');
-      fetchData();
+      fetchData(page, filters);
       fetchStats();
-    } catch (err: any) {
-      message.error(err?.detail || '操作失败');
+    } catch (err: unknown) {
+      message.error((err as { detail?: string })?.detail || '操作失败');
     }
   };
 
@@ -96,26 +136,29 @@ const AlertCenter: React.FC = () => {
     try {
       await alertApi.dismiss(id);
       message.success('已忽略');
-      fetchData();
+      fetchData(page, filters);
       fetchStats();
-    } catch (err: any) {
-      message.error(err?.detail || '操作失败');
+    } catch (err: unknown) {
+      message.error((err as { detail?: string })?.detail || '操作失败');
     }
   };
 
-  const columns = [
+  const columns: ColumnsType<AlertRecord> = [
     {
       title: '类型',
       dataIndex: 'alert_type',
       width: 120,
-      render: (v: string) => <Tag color={typeColors[v]}>{typeLabels[v]}</Tag>,
+      render: (v: AlertType) => <Tag color={TYPE_COLORS[v]}>{TYPE_LABELS[v]}</Tag>,
     },
     {
       title: '严重程度',
       dataIndex: 'severity',
       width: 90,
-      render: (v: string) => (
-        <Tag color={v === 'SEVERE' ? 'red' : 'gold'} icon={v === 'SEVERE' ? <WarningOutlined /> : <AlertOutlined />}>
+      render: (v: Severity) => (
+        <Tag
+          color={v === 'SEVERE' ? 'red' : 'gold'}
+          icon={v === 'SEVERE' ? <WarningOutlined /> : <AlertOutlined />}
+        >
           {v === 'SEVERE' ? '严重' : '一般'}
         </Tag>
       ),
@@ -126,20 +169,14 @@ const AlertCenter: React.FC = () => {
       title: '触发值',
       dataIndex: 'actual_value',
       width: 80,
-      render: (v: number) => v != null ? v.toFixed(4) : '-',
+      render: (v: number | null) => (v != null ? v.toFixed(4) : '-'),
     },
     {
       title: '状态',
       dataIndex: 'status',
       width: 90,
-      render: (v: string) => {
-        const m: Record<string, { color: string; text: string }> = {
-          PENDING: { color: 'red', text: '待处理' },
-          ACKNOWLEDGED: { color: 'gold', text: '已确认' },
-          RESOLVED: { color: 'green', text: '已解决' },
-          DISMISSED: { color: 'default', text: '已忽略' },
-        };
-        const s = m[v] || { color: 'default', text: v };
+      render: (v: AlertStatus) => {
+        const s = STATUS_MAP[v] ?? { color: 'default', text: v };
         return <Tag color={s.color}>{s.text}</Tag>;
       },
     },
@@ -152,7 +189,7 @@ const AlertCenter: React.FC = () => {
     {
       title: '操作',
       width: 200,
-      render: (_: any, record: any) => (
+      render: (_: unknown, record: AlertRecord) => (
         <Space size="small">
           {record.status === 'PENDING' && (
             <>
@@ -177,7 +214,6 @@ const AlertCenter: React.FC = () => {
     },
   ];
 
-  // 预警类型饼图
   const pieOption = stats
     ? {
         tooltip: { trigger: 'item' as const },
@@ -185,8 +221,8 @@ const AlertCenter: React.FC = () => {
           {
             type: 'pie',
             radius: ['40%', '70%'],
-            data: Object.entries(stats.by_type || {}).map(([k, v]) => ({
-              name: typeLabels[k] || k,
+            data: Object.entries(stats.by_type ?? {}).map(([k, v]) => ({
+              name: TYPE_LABELS[k as AlertType] ?? k,
               value: v,
             })),
             label: { show: true, formatter: '{b}: {c}' },
@@ -197,7 +233,6 @@ const AlertCenter: React.FC = () => {
 
   return (
     <div>
-      {/* 统计卡片 */}
       {stats && (
         <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
           <Col xs={12} sm={6}>
@@ -209,7 +244,7 @@ const AlertCenter: React.FC = () => {
             <Card size="small">
               <Statistic
                 title="待处理"
-                value={stats.by_status?.PENDING || 0}
+                value={stats.by_status?.PENDING ?? 0}
                 valueStyle={{ color: '#ff4d4f' }}
                 prefix={<WarningOutlined />}
               />
@@ -219,7 +254,7 @@ const AlertCenter: React.FC = () => {
             <Card size="small">
               <Statistic
                 title="已解决"
-                value={stats.by_status?.RESOLVED || 0}
+                value={stats.by_status?.RESOLVED ?? 0}
                 valueStyle={{ color: '#52c41a' }}
                 prefix={<CheckCircleOutlined />}
               />
@@ -227,27 +262,56 @@ const AlertCenter: React.FC = () => {
           </Col>
           <Col xs={12} sm={6}>
             <Card size="small">
-              <Statistic title="严重预警" value={stats.by_severity?.SEVERE || 0} valueStyle={{ color: '#ff4d4f' }} />
+              <Statistic
+                title="严重预警"
+                value={stats.by_severity?.SEVERE ?? 0}
+                valueStyle={{ color: '#ff4d4f' }}
+              />
             </Card>
           </Col>
         </Row>
       )}
 
-      {/* 筛选 + 表格 */}
-      <Card>
+      {pieOption && (
+        <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+          <Col xs={24} md={10}>
+            <Card title="预警类型分布" size="small">
+              <ReactECharts option={pieOption} style={{ height: 220 }} />
+            </Card>
+          </Col>
+        </Row>
+      )}
+
+      <Card
+        extra={
+          <Button
+            icon={<DownloadOutlined />}
+            size="small"
+            onClick={() =>
+              exportApi.alerts({
+                severity: filters.severity,
+                alert_status: filters.status,
+                alert_type: filters.alert_type,
+              })
+            }
+          >
+            导出 CSV
+          </Button>
+        }
+      >
         <Space wrap style={{ marginBottom: 16 }}>
           <Select
             placeholder="预警类型"
             allowClear
             style={{ width: 130 }}
-            onChange={(v) => { setFilters((f: any) => ({ ...f, alert_type: v })); setTimeout(() => fetchData(1), 0); }}
-            options={Object.entries(typeLabels).map(([k, v]) => ({ value: k, label: v }))}
+            onChange={(v: AlertType | undefined) => applyFilter({ alert_type: v })}
+            options={Object.entries(TYPE_LABELS).map(([k, v]) => ({ value: k, label: v }))}
           />
           <Select
             placeholder="严重程度"
             allowClear
             style={{ width: 110 }}
-            onChange={(v) => { setFilters((f: any) => ({ ...f, severity: v })); setTimeout(() => fetchData(1), 0); }}
+            onChange={(v: Severity | undefined) => applyFilter({ severity: v })}
             options={[
               { value: 'GENERAL', label: '一般' },
               { value: 'SEVERE', label: '严重' },
@@ -257,17 +321,12 @@ const AlertCenter: React.FC = () => {
             placeholder="处理状态"
             allowClear
             style={{ width: 110 }}
-            onChange={(v) => { setFilters((f: any) => ({ ...f, status: v })); setTimeout(() => fetchData(1), 0); }}
-            options={[
-              { value: 'PENDING', label: '待处理' },
-              { value: 'ACKNOWLEDGED', label: '已确认' },
-              { value: 'RESOLVED', label: '已解决' },
-              { value: 'DISMISSED', label: '已忽略' },
-            ]}
+            onChange={(v: AlertStatus | undefined) => applyFilter({ status: v })}
+            options={Object.entries(STATUS_MAP).map(([k, v]) => ({ value: k, label: v.text }))}
           />
         </Space>
 
-        <Table
+        <Table<AlertRecord>
           dataSource={data}
           columns={columns}
           rowKey="id"
@@ -278,16 +337,21 @@ const AlertCenter: React.FC = () => {
             pageSize: 20,
             total,
             showTotal: (t) => `共 ${t} 条预警`,
-            onChange: (p) => { setPage(p); fetchData(p); },
+            onChange: (p) => {
+              setPage(p);
+              fetchData(p, filters);
+            },
           }}
         />
       </Card>
 
-      {/* 处理弹窗 */}
       <Modal
         title="处理预警"
         open={!!resolveModal}
-        onCancel={() => { setResolveModal(null); setResolveNotes(''); }}
+        onCancel={() => {
+          setResolveModal(null);
+          setResolveNotes('');
+        }}
         onOk={handleResolve}
         okText="确认处理"
       >

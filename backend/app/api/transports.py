@@ -1,9 +1,9 @@
 """运输记录API"""
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_db, get_current_user
 from app.models.transport import TransportRecord, RecordStatus
@@ -50,8 +50,10 @@ def list_transports(
         query = query.filter(TransportRecord.arrival_time <= end_date)
 
     total = query.count()
+    # 使用 joinedload 消除 N+1 查询
     records = (
-        query.order_by(TransportRecord.created_at.desc())
+        query.options(joinedload(TransportRecord.vehicle))
+        .order_by(TransportRecord.created_at.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
@@ -60,9 +62,7 @@ def list_transports(
     items = []
     for r in records:
         item = TransportListItem.model_validate(r).model_dump()
-        # 附加车牌号
-        vehicle = db.query(Vehicle).filter(Vehicle.id == r.vehicle_id).first()
-        item["plate_number"] = vehicle.plate_number if vehicle else "未知"
+        item["plate_number"] = r.vehicle.plate_number if r.vehicle else "未知"
         items.append(item)
 
     return api_response(data=paginate_response(items, total, page, page_size))

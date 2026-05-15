@@ -9,7 +9,7 @@ from app.config import settings
 from app.database import engine, Base, SessionLocal
 from app.models import *  # 确保所有模型注册
 from app.models.user import User, UserRole
-from app.api import vehicles, transports, alerts, dashboard, auth
+from app.api import vehicles, transports, alerts, dashboard, auth, export, ws
 from passlib.context import CryptContext
 
 
@@ -63,10 +63,11 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# CORS中间件配置
+# CORS中间件配置（生产环境通过 ALLOWED_ORIGINS 环境变量覆盖）
+_origins = settings.ALLOWED_ORIGINS if settings.ALLOWED_ORIGINS else ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 生产环境应限制为前端域名
+    allow_origins=_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -93,6 +94,8 @@ app.include_router(vehicles.router)
 app.include_router(transports.router)
 app.include_router(alerts.router)
 app.include_router(dashboard.router)
+app.include_router(export.router)
+app.include_router(ws.router)
 
 
 @app.get("/", tags=["健康检查"])

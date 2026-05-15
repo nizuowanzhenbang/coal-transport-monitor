@@ -201,3 +201,60 @@ class TestRiskEngine:
         score = engine.compute_risk_score(alerts)
         # 0.4*2 + 0.3*1 + 0.3*2 = 0.8 + 0.3 + 0.6 = 1.7
         assert score == 1.7
+
+
+# ---- 边界情况测试 ----
+
+class TestEdgeCases:
+    """边界与异常情况测试"""
+
+    def test_weight_exactly_at_threshold(self):
+        """精确等于阈值（3‰）不应触发预警"""
+        analyzer = WeightAnalyzer()
+        departure_net = 30000.0
+        # 恰好 3‰ 亏吨（< 而非 <=）
+        arrival_net = departure_net * (1 - 0.003)
+        transport = make_transport(departure_net=departure_net, arrival_net=arrival_net)
+        alerts = analyzer.analyze(transport, [])
+        assert len(alerts) == 0
+
+    def test_weight_zero_departure(self):
+        """出港净重为0时不应崩溃"""
+        analyzer = WeightAnalyzer()
+        transport = make_transport(departure_net=0, arrival_net=0)
+        alerts = analyzer.analyze(transport, [])
+        assert isinstance(alerts, list)
+
+    def test_time_baseline_with_history(self):
+        """有历史数据时应使用历史中位数作为基准"""
+        analyzer = TimeAnalyzer()
+        historical = [make_transport(duration_minutes=200) for _ in range(15)]
+        # 历史基准约为200分钟，+80分钟超过严重阈值60分钟
+        transport = make_transport(duration_minutes=280)
+        alerts = analyzer.analyze(transport, historical)
+        severe = [a for a in alerts if a.severity == Severity.SEVERE]
+        assert len(severe) >= 1
+
+    def test_seal_similarity_boundary(self):
+        """相似度恰好在边界上的铅封处理"""
+        analyzer = SealAnalyzer()
+        # 相同字符串应无预警
+        alerts = analyzer.analyze("SEAL-2024-000001", "SEAL-2024-000001", True, True)
+        assert len(alerts) == 0
+
+    def test_both_seals_missing(self):
+        """出港和进厂铅封都缺失"""
+        analyzer = SealAnalyzer()
+        alerts = analyzer.analyze(None, None, True, True)
+        assert len(alerts) >= 1
+
+    def test_dynamic_threshold_insufficient_history(self):
+        """历史数据不足10条时应退回固定阈值"""
+        analyzer = WeightAnalyzer()
+        # 只有5条历史记录，不足 MIN_HISTORY=10
+        historical = [make_transport(departure_net=30000, arrival_net=30000) for _ in range(5)]
+        # 亏吨 5‰ → 应仍触发固定阈值严重预警
+        transport = make_transport(departure_net=30000, arrival_net=30000 * 0.995)
+        alerts = analyzer.analyze(transport, historical)
+        severe = [a for a in alerts if a.severity == Severity.SEVERE]
+        assert len(severe) >= 1

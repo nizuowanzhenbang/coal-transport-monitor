@@ -1,81 +1,80 @@
-import React, { useEffect, useState } from 'react';
-import { Card, Row, Col, Statistic, Table, Tag, Spin, theme } from 'antd';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { Card, Row, Col, Statistic, Table, Tag, Spin, Button, notification } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
 import {
   AlertOutlined,
   CarOutlined,
   ClockCircleOutlined,
   WarningOutlined,
-  CheckCircleOutlined,
   ThunderboltOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import { dashboardApi } from '../api';
+import { useAlertWebSocket } from '../hooks/useAlertWebSocket';
+import { useAuthStore } from '../stores/auth';
+import type { OverviewData, AlertTrendItem, TopRiskVehicle, WeightDistItem } from '../types';
 import dayjs from 'dayjs';
 
-interface Overview {
-  total_transports: number;
-  today_transports: number;
-  pending_alerts: number;
-  severe_alerts: number;
-  anomaly_rate: number;
-  avg_duration_minutes: number;
-  total_vehicles: number;
-  active_vehicles: number;
-}
-
-interface AlertTrendItem {
-  date: string;
-  total: number;
-  weight_count: number;
-  time_count: number;
-  seal_count: number;
-}
-
-interface TopRiskVehicle {
-  plate_number: string;
-  total_alerts: number;
-  severe_count: number;
-  last_alert_time: string | null;
-}
-
-interface WeightDistItem {
-  range_min: number;
-  range_max: number;
-  count: number;
-}
+const REFRESH_INTERVAL_MS = 60_000;
 
 const Dashboard: React.FC = () => {
-  const [overview, setOverview] = useState<Overview | null>(null);
+  const { token } = useAuthStore();
+  const [overview, setOverview] = useState<OverviewData | null>(null);
   const [trend, setTrend] = useState<AlertTrendItem[]>([]);
   const [topVehicles, setTopVehicles] = useState<TopRiskVehicle[]>([]);
   const [weightDist, setWeightDist] = useState<WeightDistItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const fetchData = useCallback(async (showSpinner = false) => {
+    if (showSpinner) setLoading(true);
+    try {
+      const [ov, tr, tv, wd] = await Promise.all([
+        dashboardApi.overview(),
+        dashboardApi.alertTrend(30),
+        dashboardApi.topRiskVehicles(10),
+        dashboardApi.weightDistribution(12),
+      ]);
+      setOverview(ov.data);
+      setTrend(tr.data);
+      setTopVehicles(tv.data);
+      setWeightDist(wd.data);
+    } catch {
+      // 静默失败，保留旧数据
+    } finally {
+      if (showSpinner) setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [ov, tr, tv, wd] = await Promise.all([
-          dashboardApi.overview(),
-          dashboardApi.alertTrend(30),
-          dashboardApi.topRiskVehicles(10),
-          dashboardApi.weightDistribution(12),
-        ]);
-        setOverview((ov as any).data);
-        setTrend((tr as any).data);
-        setTopVehicles((tv as any).data);
-        setWeightDist((wd as any).data);
-      } catch (err) {
-        console.error('仪表盘数据加载失败', err);
-      } finally {
-        setLoading(false);
-      }
+    fetchData(true);
+  }, [fetchData]);
+
+  // 每 60 秒自动刷新
+  useEffect(() => {
+    timerRef.current = setInterval(() => fetchData(false), REFRESH_INTERVAL_MS);
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
     };
-    fetchData();
-  }, []);
+  }, [fetchData]);
+
+  // WebSocket 实时预警通知
+  useAlertWebSocket({
+    token,
+    enabled: true,
+    onNewAlert: (msg) => {
+      notification.warning({
+        message: `新预警：${msg.data.severity === 'SEVERE' ? '严重' : '一般'}`,
+        description: msg.data.description,
+        duration: 6,
+      });
+      dashboardApi.overview().then((res) => setOverview(res.data)).catch(() => {});
+    },
+  });
 
   if (loading) return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
 
-  // 预警趋势图配置
   const trendOption = {
     tooltip: { trigger: 'axis' as const },
     legend: { data: ['重量异常', '时间异常', '铅封异常'], bottom: 0 },
@@ -93,13 +92,11 @@ const Dashboard: React.FC = () => {
     ],
   };
 
-  // 重量分布图配置
   const distOption = {
     tooltip: {
       trigger: 'axis' as const,
-      formatter: (params: any) => {
-        const p = params[0];
-        const d = weightDist[p.dataIndex];
+      formatter: (params: { dataIndex: number }[]) => {
+        const d = weightDist[params[0].dataIndex];
         return `${(d.range_min * 1000).toFixed(1)}‰ ~ ${(d.range_max * 1000).toFixed(1)}‰<br/>数量: ${d.count}`;
       },
     },
@@ -115,7 +112,7 @@ const Dashboard: React.FC = () => {
         type: 'bar',
         data: weightDist.map((d) => d.count),
         itemStyle: {
-          color: (params: any) => {
+          color: (params: { dataIndex: number }) => {
             const mid = weightDist[params.dataIndex];
             const avg = (mid.range_min + mid.range_max) / 2;
             if (Math.abs(avg) > 0.003) return '#ff4d4f';
@@ -127,19 +124,22 @@ const Dashboard: React.FC = () => {
     ],
   };
 
-  // 高风险车辆表格列
-  const vehicleColumns = [
+  const vehicleColumns: ColumnsType<TopRiskVehicle> = [
     {
       title: '车牌号',
       dataIndex: 'plate_number',
-      render: (v: string, _: any, idx: number) => (
+      render: (v: string, _record, idx) => (
         <span>
           {idx < 3 && <WarningOutlined style={{ color: '#ff4d4f', marginRight: 4 }} />}
           {v}
         </span>
       ),
     },
-    { title: '预警总数', dataIndex: 'total_alerts', sorter: (a: any, b: any) => a.total_alerts - b.total_alerts },
+    {
+      title: '预警总数',
+      dataIndex: 'total_alerts',
+      sorter: (a, b) => a.total_alerts - b.total_alerts,
+    },
     {
       title: '严重预警',
       dataIndex: 'severe_count',
@@ -148,13 +148,12 @@ const Dashboard: React.FC = () => {
     {
       title: '最近预警',
       dataIndex: 'last_alert_time',
-      render: (v: string) => (v ? dayjs(v).format('MM-DD HH:mm') : '-'),
+      render: (v: string | null) => (v ? dayjs(v).format('MM-DD HH:mm') : '-'),
     },
   ];
 
   return (
     <div>
-      {/* KPI卡片 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         <Col xs={24} sm={12} lg={6}>
           <Card hoverable>
@@ -184,10 +183,10 @@ const Dashboard: React.FC = () => {
           <Card hoverable>
             <Statistic
               title="异常率"
-              value={((overview?.anomaly_rate || 0) * 100).toFixed(1)}
+              value={((overview?.anomaly_rate ?? 0) * 100).toFixed(1)}
               suffix="%"
               prefix={<ThunderboltOutlined />}
-              valueStyle={{ color: (overview?.anomaly_rate || 0) > 0.1 ? '#ff4d4f' : '#52c41a' }}
+              valueStyle={{ color: (overview?.anomaly_rate ?? 0) > 0.1 ? '#ff4d4f' : '#52c41a' }}
             />
           </Card>
         </Col>
@@ -206,10 +205,16 @@ const Dashboard: React.FC = () => {
         </Col>
       </Row>
 
-      {/* 图表区域 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         <Col xs={24} lg={14}>
-          <Card title="预警趋势（近30天）">
+          <Card
+            title="预警趋势（近30天）"
+            extra={
+              <Button size="small" icon={<ReloadOutlined />} onClick={() => fetchData(false)}>
+                刷新
+              </Button>
+            }
+          >
             <ReactECharts option={trendOption} style={{ height: 300 }} />
           </Card>
         </Col>
@@ -220,11 +225,10 @@ const Dashboard: React.FC = () => {
         </Col>
       </Row>
 
-      {/* 高风险车辆 */}
       <Row gutter={[16, 16]}>
         <Col span={24}>
           <Card title="高风险车辆 TOP10">
-            <Table
+            <Table<TopRiskVehicle>
               dataSource={topVehicles}
               columns={vehicleColumns}
               rowKey="plate_number"

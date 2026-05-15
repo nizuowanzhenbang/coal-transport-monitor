@@ -1,4 +1,5 @@
 """应用配置管理"""
+from typing import List, Optional
 from pydantic_settings import BaseSettings
 
 
@@ -13,8 +14,11 @@ class Settings(BaseSettings):
 
     # 应用基本配置
     APP_NAME: str = "汽车运煤智能监督与风险预警系统"
-    APP_VERSION: str = "1.0.0"
+    APP_VERSION: str = "2.0.0"
     DEBUG: bool = False
+
+    # CORS 配置（生产环境设置为前端域名列表，如 ["https://coal.example.com"]）
+    ALLOWED_ORIGINS: Optional[List[str]] = None
 
     # 重量异常检测阈值
     WEIGHT_DIFF_THRESHOLD: float = 0.003  # 固定阈值 3‰

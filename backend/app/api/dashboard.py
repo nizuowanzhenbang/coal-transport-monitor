@@ -1,6 +1,7 @@
 """仪表盘API：概览数据、趋势分析、排名统计"""
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
+import numpy as np
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, case
 from sqlalchemy.orm import Session
@@ -25,7 +26,7 @@ def get_overview(
 
     返回：总运输数、今日运输、待处理预警、严重预警、异常率、平均时长、车辆数
     """
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
 
     total_transports = db.query(func.count(TransportRecord.id)).scalar() or 0
     today_transports = (
@@ -85,7 +86,7 @@ def get_alert_trend(
     current_user=Depends(get_current_user),
 ):
     """获取预警趋势数据（按日统计）"""
-    cutoff = datetime.utcnow() - timedelta(days=days)
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
 
     # 按日分组统计各类预警
     results = (
@@ -179,27 +180,16 @@ def get_weight_distribution(
     if not ratios:
         return api_response(data=[])
 
-    # 计算直方图分布
-    min_val, max_val = min(ratios), max(ratios)
-    if min_val == max_val:
-        bin_width = 0.001
-    else:
-        bin_width = (max_val - min_val) / bins
-
-    distribution = []
-    for i in range(bins):
-        lower = min_val + i * bin_width
-        upper = lower + bin_width
-        count = sum(1 for r in ratios if lower <= r < upper)
-        distribution.append(WeightDistributionItem(
-            range_min=round(lower, 6),
-            range_max=round(upper, 6),
-            count=count,
-        ).model_dump())
-
-    # 最后一个bin包含上界
-    if ratios:
-        last_count = sum(1 for r in ratios if r == max_val)
-        distribution[-1]["count"] += last_count
+    # 使用 numpy.histogram 替代 O(n*m) Python 循环
+    arr = np.array(ratios, dtype=float)
+    counts, edges = np.histogram(arr, bins=bins)
+    distribution = [
+        WeightDistributionItem(
+            range_min=round(float(edges[i]), 6),
+            range_max=round(float(edges[i + 1]), 6),
+            count=int(counts[i]),
+        ).model_dump()
+        for i in range(len(counts))
+    ]
 
     return api_response(data=distribution)

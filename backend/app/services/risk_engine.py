@@ -1,4 +1,5 @@
 """风险检测引擎：协调三大分析器，生成预警记录，计算综合风险评分"""
+import asyncio
 from typing import List
 from datetime import datetime
 
@@ -128,18 +129,6 @@ class RiskEngine:
             has_severe = any(a.severity == Severity.SEVERE for a in created_alerts)
             transport.status = RecordStatus.SEVERE if has_severe else RecordStatus.ALERT
             transport.alert_count = (transport.alert_count or 0) + len(created_alerts)
-
-            # 累计严重预警检查
-            severe_count = (
-                db.query(Alert)
-                .join(TransportRecord)
-                .filter(
-                    TransportRecord.vehicle_id == transport.vehicle_id,
-                    Alert.severity == Severity.SEVERE,
-                )
-                .count()
-            )
-            transport.notes = (transport.notes or "") + f"\n累计严重预警: {severe_count}次"
         else:
             transport.status = RecordStatus.NORMAL
 
@@ -149,7 +138,34 @@ class RiskEngine:
         for alert in created_alerts:
             db.refresh(alert)
 
+        # 异步广播新预警（不阻塞主线程）
+        if created_alerts:
+            self._broadcast_alerts(transport, created_alerts)
+
         return created_alerts
+
+    @staticmethod
+    def _broadcast_alerts(transport: TransportRecord, alerts: List[Alert]) -> None:
+        """将新预警异步广播给所有 WebSocket 客户端"""
+        try:
+            from app.api.ws import broadcast_alert
+            loop = asyncio.get_event_loop()
+            for alert in alerts:
+                payload = {
+                    "type": "new_alert",
+                    "data": {
+                        "id": alert.id,
+                        "transport_id": alert.transport_id,
+                        "alert_type": alert.alert_type.value,
+                        "severity": alert.severity.value,
+                        "description": alert.description,
+                        "created_at": alert.created_at.isoformat() if alert.created_at else None,
+                    },
+                }
+                if loop.is_running():
+                    asyncio.ensure_future(broadcast_alert(payload))
+        except Exception:
+            pass
 
     def compute_risk_score(self, alerts: List[Alert]) -> float:
         """
