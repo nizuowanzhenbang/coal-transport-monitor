@@ -11,6 +11,8 @@ from app.schemas.seal import SealRecordResponse
 class TransportRecordCreate(BaseModel):
     """创建运输记录请求体（同时接受铅封二维码用于自动创建铅封记录）"""
     vehicle_id: int
+    batch_number: Optional[str] = None
+    supplier_name: Optional[str] = None
     departure_port: str
     departure_weight: float           # 出港毛重
     departure_net_weight: float       # 出港净重
@@ -47,6 +49,8 @@ class TransportRecordResponse(BaseModel):
     """运输记录详情响应"""
     id: int
     vehicle_id: int
+    batch_number: Optional[str] = None
+    supplier_name: Optional[str] = None
 
     # 出港信息
     departure_port: Optional[str]
@@ -85,6 +89,8 @@ class TransportListItem(BaseModel):
     """运输记录列表项（简化版）"""
     id: int
     vehicle_id: int
+    batch_number: Optional[str] = None
+    supplier_name: Optional[str] = None
     vehicle_plate: Optional[str] = None
     departure_port: Optional[str]
     departure_time: Optional[datetime]

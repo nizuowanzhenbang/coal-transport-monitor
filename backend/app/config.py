@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     HISTORICAL_WINDOW_SIZE: int = 100  # 最近N条记录用于动态阈值计算
     MIN_HISTORICAL_SIZE: int = 10      # 动态阈值最少历史样本数
 
+    # 闭环集成：煤质化验系统
+    QUALITY_SYSTEM_URL: str = ""  # 煤质系统地址，如 http://localhost:8001，为空则禁用 webhook
+    QUALITY_INTEGRATION_SECRET: str = "coal-integration-shared-secret"
+
     model_config = {"env_file": ".env", "case_sensitive": True}
 
 

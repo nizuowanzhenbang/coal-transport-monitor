@@ -1,4 +1,5 @@
 """运输记录API"""
+import logging
 from typing import Optional
 from datetime import datetime, timezone
 
@@ -19,6 +20,9 @@ from app.schemas.transport import (
 from app.schemas.alert import AlertResponse
 from app.services.risk_engine import RiskEngine
 from app.utils.helpers import api_response, paginate_response
+from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/transports", tags=["运输记录"])
 
@@ -92,6 +96,8 @@ def create_transport(
     # 创建运输记录
     transport = TransportRecord(
         vehicle_id=transport_in.vehicle_id,
+        batch_number=transport_in.batch_number,
+        supplier_name=transport_in.supplier_name,
         departure_port=transport_in.departure_port,
         departure_weight=transport_in.departure_weight,
         departure_net_weight=transport_in.departure_net_weight,
@@ -143,6 +149,10 @@ def create_transport(
     result = TransportRecordResponse.model_validate(transport).model_dump()
     result["risk_score"] = risk_score
     result["alerts_count"] = len(alerts)
+
+    # 闭环推送：将运输结果推送到煤质化验系统
+    if transport_in.batch_number and settings.QUALITY_SYSTEM_URL:
+        _push_to_quality_system(transport, alerts, vehicle)
 
     return api_response(message="运输记录创建成功，已完成风险检测", data=result)
 
@@ -214,3 +224,47 @@ def update_transport(
     db.commit()
     db.refresh(record)
     return api_response(message="运输记录更新成功", data=TransportRecordResponse.model_validate(record).model_dump())
+
+
+def _push_to_quality_system(transport: TransportRecord, alerts: list, vehicle: Vehicle) -> None:
+    """将运输完成事件推送到煤质化验系统（异步，失败静默）"""
+    import threading
+    import httpx
+
+    def _do_push():
+        try:
+            payload = {
+                "batch_number": transport.batch_number,
+                "plate_number": vehicle.plate_number,
+                "supplier_name": transport.supplier_name,
+                "transport_id": transport.id,
+                "status": transport.status.value if transport.status else "NORMAL",
+                "weight_diff_ratio": transport.weight_diff_ratio,
+                "transport_duration": transport.transport_duration,
+                "departure_port": transport.departure_port,
+                "departure_time": transport.departure_time.isoformat() if transport.departure_time else None,
+                "arrival_time": transport.arrival_time.isoformat() if transport.arrival_time else None,
+                "departure_net_weight": transport.departure_net_weight,
+                "arrival_net_weight": transport.arrival_net_weight,
+                "alerts": [
+                    {
+                        "alert_type": a.alert_type.value,
+                        "severity": a.severity.value,
+                        "description": a.description,
+                        "threshold_value": a.threshold_value,
+                        "actual_value": a.actual_value,
+                    }
+                    for a in alerts
+                ],
+            }
+            url = f"{settings.QUALITY_SYSTEM_URL.rstrip('/')}/api/integration/transport-event"
+            httpx.post(
+                url,
+                json=payload,
+                headers={"X-Integration-Secret": settings.QUALITY_INTEGRATION_SECRET},
+                timeout=10,
+            )
+        except Exception as e:
+            logger.warning("推送到煤质系统失败: %s", e)
+
+    threading.Thread(target=_do_push, daemon=True).start()

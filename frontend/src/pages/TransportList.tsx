@@ -88,6 +88,7 @@ const TransportList: React.FC = () => {
   };
 
   const columns: ColumnsType<TransportListItem> = [
+    { title: '批次号', dataIndex: 'batch_number', width: 110, render: (v: string | null) => v || '-' },
     { title: '车牌号', dataIndex: 'plate_number', width: 100 },
     { title: '出发港口', dataIndex: 'departure_port', width: 120 },
     {
@@ -228,6 +229,8 @@ const TransportList: React.FC = () => {
       >
         {detail && (
           <Descriptions column={2} bordered size="small">
+            <Descriptions.Item label="批次号">{detail.batch_number || '-'}</Descriptions.Item>
+            <Descriptions.Item label="供应商">{detail.supplier_name || '-'}</Descriptions.Item>
             <Descriptions.Item label="车牌号">{detail.plate_number}</Descriptions.Item>
             <Descriptions.Item label="出发港口">{detail.departure_port}</Descriptions.Item>
             <Descriptions.Item label="出港时间">

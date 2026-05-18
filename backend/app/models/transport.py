@@ -21,6 +21,10 @@ class TransportRecord(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
+    # 闭环关联：批次号（与煤质化验系统共享的关联键）
+    batch_number = Column(String(50), nullable=True, index=True, comment="关联批次号（煤质系统）")
+    supplier_name = Column(String(100), nullable=True, comment="供应商名称")
+
     # 外键：关联车辆
     vehicle_id = Column(
         Integer, ForeignKey("vehicles.id"), nullable=False, index=True, comment="车辆ID"

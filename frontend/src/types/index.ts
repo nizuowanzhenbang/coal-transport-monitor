@@ -41,6 +41,8 @@ export type RecordStatus = 'NORMAL' | 'ALERT' | 'SEVERE';
 export interface TransportListItem {
   id: number;
   vehicle_id: number;
+  batch_number: string | null;
+  supplier_name: string | null;
   plate_number: string;
   departure_port: string | null;
   departure_time: string | null;
