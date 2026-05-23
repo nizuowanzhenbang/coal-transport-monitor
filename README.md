@@ -1,70 +1,107 @@
-# 汽车运煤智能监督与风险预警系统
+# 拉煤车的"监工" · 汽车运煤智能监督与风险预警系统
 
-[English](#english) | [中文](#中文)
+> 🚚 一个发电厂一天进进出出几百辆运煤车——港口装 50 吨，进厂只剩 49 吨，路上是洒了、偷卖了、还是司机偷换了次煤？正常 3 小时跑完的路线开了 6 小时，中途去哪儿了？铅封编号港口扫一个、进厂扫的是另一个——什么时候被人撕了？这些小猫腻一年加起来，丢的可能是几百万。
+
+**这套系统盯住每一辆运煤车的"重量、时间、铅封"三道关**：港口装车的吨数 vs 进厂卸车的吨数差超过 3‰ 自动报警；从港口到入厂的运输时长超过基准 30 分钟黄牌、超过 60 分钟红牌；港口出港铅封二维码 vs 进厂进厂铅封二维码不一致直接红牌。所有预警走 `新建 → 确认 → 处理 → 归档`闭环，谁处理的、什么时候、备注什么写得明明白白。
+
+> ⚠️ **免责声明**：本系统是 **厂内运输监督工具**，预警仅为风险线索，不能直接作为对承运商索赔或司法举证的依据。
 
 ---
 
-## 中文
+## ⚡ 30 秒看明白你能用它做什么
 
-### 项目简介
+| 你是谁 | 它帮你做什么 |
+|---|---|
+| 🛂 卸车地磅员 | 进厂扫铅封 + 记重量，异常当场报警，不用回头翻账 |
+| 🚦 调度员 | 实时大屏看在途车辆、超时车辆、TOP 风险车辆 |
+| 🛡️ 监督员 | 预警中心确认/处理/归档，所有处置可追溯 |
+| 🏢 燃料部主任 | 大屏看月度运输异常率、承运商表现榜，例会数据现成 |
+| 🤝 燃料采购 | 拉哪个承运商风险高的数据，下次合同谈判直接亮证据 |
 
-基于港口—入厂数据比对的汽车运煤智能监督与风险预警系统。聚焦**重量、时间、铅封**三大核心指标，构建燃煤汽运全流程监督体系，精准识别运输舞弊隐患。
+---
 
-### 核心功能
+## ✨ 核心场景
 
-- **重量异常检测** - 亏吨/盈吨智能识别，支持固定阈值 + 动态阈值双重检测
-- **时间异常检测** - 运输超时、中途停留异常自动预警
-- **铅封验证** - 出港/进厂铅封二维码比对，防篡改
-- **分级预警** - 一般预警(黄灯) / 严重预警(红灯) 分级管控
-- **风险仪表盘** - 实时监控、趋势分析、高风险车辆排名
-- **闭环管理** - 预警→确认→处理→归档 全流程可追溯
+### ⚖️ 重量监督：盈亏吨当场报警
 
-### 技术栈
+| 类型 | 一般预警（黄） | 严重预警（红） |
+|---|---|---|
+| 盈吨（进厂 > 港口） | > 3‰ | — |
+| 亏吨（港口 > 进厂） | — | > 3‰ |
 
-| 层级 | 技术选型 |
-|------|---------|
-| 后端框架 | FastAPI + SQLAlchemy 2.0 + Pydantic v2 |
-| 前端框架 | React 18 + TypeScript + Ant Design 5 |
-| 数据可视化 | ECharts |
-| 数据分析 | Pandas + NumPy + Scikit-learn |
-| 数据库 | SQLite (开发) / PostgreSQL (生产) |
-| 容器化 | Docker Compose |
+> 💡 **为什么亏 3‰ 就要警？**
+> 一车 50 吨煤，亏 150 公斤就触发。理论上路上洒煤、计量误差顶天也就 0.5‰，超过 3‰ 通常意味着**人为操作**（偷卖、掺杂质换好煤）。
 
-### 快速开始
+### ⏱️ 时间监督：超时多久该警觉
+
+| 时长 | 等级 |
+|---|---|
+| 超基准 30–60 分钟 | 一般预警（黄） |
+| 超基准 > 60 分钟 | 严重预警（红） |
+
+正常路线 3 小时跑完，开了 6 小时——除了堵车，还可能是中途去倒煤、拉私活、甚至车辆被劫。
+
+### 🔒 铅封防篡改：出港 vs 进厂双重扫码
+- 出港装车时扫一次铅封二维码登记
+- 进厂卸车前再扫一次比对
+- 编号不一致 → 红牌（最像调包）
+- 二维码物理损坏 → 黄牌（疑似撕过又粘回去）
+
+### 🚦 分级预警 + 闭环处置
+```
+新预警（NEW） → 已确认（CONFIRMED） → 已处理（HANDLED） → 已归档（ARCHIVED）
+```
+- WebSocket 实时推送，每个新预警秒级到岗
+- 处理人 / 处理时间 / 处理备注全部留痕
+
+### 📊 风险仪表盘
+- 实时在途 / 异常 / 完成车辆数
+- 月度运输异常率趋势
+- **高风险车辆 TOP** + **高风险承运商 TOP**
+- 一键导出 CSV 给采购部门做合同谈判
+
+---
+
+## 🚀 快速开始
 
 ```bash
-# 克隆项目
-git clone https://github.com/woshiniba-debug/coal-transport-monitor.git
-cd coal-transport-monitor
-
-# 启动后端
+# 后端
 cd backend
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 
-# 启动前端 (新终端)
+# 前端
 cd frontend
 npm install
-npm run dev
+npm run dev                          # http://localhost:5173
 ```
 
-访问 http://localhost:5173 查看前端界面
-访问 http://localhost:8000/docs 查看API文档
+打开 http://localhost:5173 → 默认账户 `admin / admin123`。
 
-### 风险预警规则
+API 文档：http://localhost:8000/docs
 
-| 类型 | 一般预警 | 严重预警 |
-|------|---------|---------|
-| 重量 | 盈吨 > 3‰ | 亏吨 > 3‰ |
-| 时间 | 超时 30-60 分钟 | 超时 > 60 分钟 |
-| 铅封 | 二维码损坏 | 出港/进厂二维码不一致 |
+> 🔒 生产部署请务必删掉 seed 用户、改强密码。
 
-### 项目结构
+---
+
+## 🛠️ 技术栈
+
+| 层 | 选型 |
+|---|---|
+| 后端 | FastAPI · SQLAlchemy 2.0 · Pydantic v2 |
+| 前端 | React 18 · TypeScript · Ant Design 5 |
+| 可视化 | ECharts |
+| 数据分析 | Pandas · NumPy · Scikit-learn |
+| 数据 | SQLite（开发）/ PostgreSQL（生产） |
+| 实时推送 | WebSocket |
+| 容器化 | Docker Compose |
+
+## 📁 目录结构
 
 ```
 coal-transport-monitor/
-├── backend/          # Python后端 (FastAPI)
-├── frontend/         # React前端
+├── backend/          # FastAPI 后端
+├── frontend/         # React 前端
 ├── docs/             # 文档
 ├── docker-compose.yml
 ├── Makefile
@@ -73,57 +110,24 @@ coal-transport-monitor/
 
 ---
 
-## English
+## 🔗 智慧发电厂全家桶中的位置
 
-### Overview
+本项目是 [smart-power-plant](https://github.com/nizuowanzhenbang/smart-power-plant) 七大子系统中的"运输监督"模块，是燃料链的起点：
 
-An intelligent monitoring and risk early-warning system for coal transport trucks, based on port-to-factory data comparison. Focuses on three core indicators: **weight, time, and seal verification** to identify transportation fraud risks.
-
-### Core Features
-
-- **Weight Anomaly Detection** - Smart identification of shortage/overage with static + dynamic thresholds
-- **Time Anomaly Detection** - Automatic alerts for transport delays and abnormal stops
-- **Seal Verification** - Port/factory QR code comparison to prevent tampering
-- **Tiered Alerts** - General (yellow) / Severe (red) alert classification
-- **Risk Dashboard** - Real-time monitoring, trend analysis, high-risk vehicle ranking
-- **Closed-loop Management** - Alert → Acknowledge → Resolve → Archive full traceability
-
-### Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Backend | FastAPI + SQLAlchemy 2.0 + Pydantic v2 |
-| Frontend | React 18 + TypeScript + Ant Design 5 |
-| Visualization | ECharts |
-| Analytics | Pandas + NumPy + Scikit-learn |
-| Database | SQLite (dev) / PostgreSQL (prod) |
-| Container | Docker Compose |
-
-### Quick Start
-
-```bash
-git clone https://github.com/woshiniba-debug/coal-transport-monitor.git
-cd coal-transport-monitor
-
-# Backend
-cd backend
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
-
-# Frontend (new terminal)
-cd frontend
-npm install
-npm run dev
+```
+*** coal-transport-monitor（本系统）***
+        ↓ 进厂
+[coal-quality-monitor: 化验比对]
+        ↓
+[fuel-procurement: 订单到货登记]
+        ↓
+[coal-yard-management: 入煤场堆放]
+        ↓
+    锅炉燃用
 ```
 
-### Alert Rules
+与 [coal-quality-monitor](https://github.com/nizuowanzhenbang/coal-quality-monitor) 互补：**重量异常 + 质量异常**两条线索合起来看，"偷卖煤 + 换次煤"的组合舞弊更容易暴露。
 
-| Type | General Alert | Severe Alert |
-|------|--------------|-------------|
-| Weight | Overage > 3‰ | Shortage > 3‰ |
-| Time | 30-60 min over | > 60 min over |
-| Seal | QR damaged | Port/factory QR mismatch |
-
-### License
+## 📜 License
 
 MIT
