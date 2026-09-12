@@ -131,3 +131,8 @@ coal-transport-monitor/
 ## 📜 License
 
 MIT
+
+
+## 持续维护
+
+[开发与验收说明](docs/MAINTENANCE.md)：自动检查、回归测试与演示边界。

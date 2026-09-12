@@ -18,11 +18,11 @@ const Settings: React.FC = () => {
 
         <Descriptions column={2} bordered size="small">
           <Descriptions.Item label="重量固定阈值">3‰（千分之三）</Descriptions.Item>
-          <Descriptions.Item label="亏吨判定">进厂净重低于出港净重，偏差 > 3‰</Descriptions.Item>
-          <Descriptions.Item label="盈吨判定">进厂净重高于出港净重，偏差 > 3‰</Descriptions.Item>
+          <Descriptions.Item label="亏吨判定">进厂净重低于出港净重，偏差 &gt; 3‰</Descriptions.Item>
+          <Descriptions.Item label="盈吨判定">进厂净重高于出港净重，偏差 &gt; 3‰</Descriptions.Item>
           <Descriptions.Item label="重量动态阈值">Z-score 2σ(一般) / 3σ(严重)</Descriptions.Item>
-          <Descriptions.Item label="时间一般预警">运输时长 > 正常基准 + 30分钟</Descriptions.Item>
-          <Descriptions.Item label="时间严重预警">运输时长 > 正常基准 + 60分钟</Descriptions.Item>
+          <Descriptions.Item label="时间一般预警">运输时长 &gt; 正常基准 + 30分钟</Descriptions.Item>
+          <Descriptions.Item label="时间严重预警">运输时长 &gt; 正常基准 + 60分钟</Descriptions.Item>
           <Descriptions.Item label="时间基准计算">历史中位数 + IQR去极值</Descriptions.Item>
           <Descriptions.Item label="铅封不一致">出港/进厂二维码不匹配 → 严重预警</Descriptions.Item>
           <Descriptions.Item label="铅封损坏">二维码无法识别/损坏 → 一般预警</Descriptions.Item>

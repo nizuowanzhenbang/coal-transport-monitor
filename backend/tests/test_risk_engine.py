@@ -23,7 +23,7 @@ def make_transport(
         departure_time = datetime.utcnow() - timedelta(hours=5)
     arrival_time = departure_time + timedelta(minutes=duration_minutes)
 
-    t = TransportRecord.__new__(TransportRecord)
+    t = TransportRecord()
     t.id = 1
     t.vehicle_id = 1
     t.departure_net_weight = departure_net
@@ -31,7 +31,7 @@ def make_transport(
     t.departure_time = departure_time
     t.arrival_time = arrival_time
     t.weight_diff = round(arrival_net - departure_net, 2)
-    t.weight_diff_ratio = round((arrival_net - departure_net) / departure_net, 6)
+    t.weight_diff_ratio = round((arrival_net - departure_net) / departure_net, 6) if departure_net else None
     t.transport_duration = duration_minutes
     return t
 
@@ -170,11 +170,11 @@ class TestRiskEngine:
         engine = RiskEngine()
         from app.models.alert import Alert
 
-        general_alert = Alert.__new__(Alert)
+        general_alert = Alert()
         general_alert.alert_type = AlertType.WEIGHT_SHORTAGE
         general_alert.severity = Severity.GENERAL
 
-        severe_alert = Alert.__new__(Alert)
+        severe_alert = Alert()
         severe_alert.alert_type = AlertType.WEIGHT_SHORTAGE
         severe_alert.severity = Severity.SEVERE
 
@@ -193,7 +193,7 @@ class TestRiskEngine:
             (AlertType.TIME_EXCESSIVE, Severity.GENERAL),
             (AlertType.SEAL_MISMATCH, Severity.SEVERE),
         ]:
-            a = Alert.__new__(Alert)
+            a = Alert()
             a.alert_type = atype
             a.severity = sev
             alerts.append(a)
